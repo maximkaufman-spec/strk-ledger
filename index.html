@@ -17,8 +17,8 @@ async function getMarket(){
 }
 async function refreshAll(){
  status.textContent="Обновление…";
- try{const [b,m]=await Promise.all([getBalance(),getMarket()]);balance.textContent=b.toLocaleString("ru-RU",{maximumFractionDigits:6});price.textContent="$"+m.price.toLocaleString("en-US",{maximumFractionDigits:6});portfolio.textContent=(b*m.price).toLocaleString("en-US",{style:"currency",currency:"USD",maximumFractionDigits:2});change.textContent=(m.change>=0?"+":"")+m.change.toFixed(2)+"%";updated.textContent=new Date().toLocaleTimeString("ru-RU",{hour:"2-digit",minute:"2-digit"});status.textContent="Только просмотр · автообновление каждые 15 секунд"}
+ try{const [b,m]=await Promise.all([getBalance(),getMarket()]);balance.textContent=b.toLocaleString("ru-RU",{maximumFractionDigits:6});price.textContent="$"+m.price.toLocaleString("en-US",{maximumFractionDigits:6});portfolio.textContent=(b*m.price).toLocaleString("en-US",{style:"currency",currency:"USD",maximumFractionDigits:2});change.textContent=(m.change>=0?"+":"")+m.change.toFixed(2)+"%";updated.textContent=new Date().toLocaleTimeString("ru-RU",{hour:"2-digit",minute:"2-digit"});status.textContent="Только просмотр · автообновление каждые 10 секунд"}
  catch(e){console.error(e);status.textContent="Ошибка получения данных: "+e.message}
 }
-refreshAll();setInterval(refreshAll,15000);
+refreshAll();setInterval(refreshAll,10000);
 </script></body></html>
