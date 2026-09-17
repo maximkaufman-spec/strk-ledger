@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#111111">
+<title>Ledger Starknet</title>
+<style>
+:root { color-scheme: dark; }
+* { box-sizing:border-box; }
+body {
+  margin:0; min-height:100vh; background:#0b0b0c; color:#fff;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  display:flex; align-items:center; justify-content:center; padding:22px;
+}
+.card {
+  width:min(430px,100%); background:#151517; border:1px solid #29292d;
+  border-radius:28px; padding:26px; box-shadow:0 20px 60px rgba(0,0,0,.35);
+}
+.top { display:flex; justify-content:space-between; align-items:center; gap:12px; }
+.badge { font-size:13px; background:#252529; padding:7px 10px; border-radius:999px; }
+h1 { font-size:23px; margin:18px 0 6px; }
+.muted { color:#9d9da5; }
+.balance { font-size:46px; font-weight:750; letter-spacing:-1.5px; margin-top:22px; }
+.usd { font-size:25px; margin-top:4px; }
+.grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:25px; }
+.box { background:#1d1d20; border-radius:18px; padding:15px; }
+.label { font-size:12px; color:#96969e; margin-bottom:7px; }
+.value { font-size:17px; font-weight:650; }
+.addr {
+  margin-top:20px; padding:13px; border-radius:14px; background:#101012;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11px;
+  color:#aaaab3; overflow-wrap:anywhere;
+}
+button {
+  width:100%; margin-top:18px; padding:14px; border:0; border-radius:16px;
+  font-size:16px; font-weight:650; cursor:pointer;
+}
+.status { margin-top:12px; text-align:center; font-size:12px; color:#85858d; }
+a { color:inherit; text-decoration:none; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="top">
+    <div class="badge">🔐 Ledger Nano X</div>
+    <div class="muted" id="updated">—</div>
+  </div>
+  <h1>Starknet Portfolio</h1>
+  <div class="muted">STRK · Starknet Mainnet</div>
+
+  <div class="balance"><span id="balance">—</span> STRK</div>
+  <div class="usd" id="portfolioUsd">$—</div>
+
+  <div class="grid">
+    <div class="box">
+      <div class="label">Цена STRK</div>
+      <div class="value" id="price">$—</div>
+    </div>
+    <div class="box">
+      <div class="label">Изменение 24ч</div>
+      <div class="value" id="change">—</div>
+    </div>
+  </div>
+
+  <div class="addr">0x03c1ab4934be14ebf6125da485fe1c39a0ab8f85f0d3ca74097eae841182b9ab</div>
+  <button onclick="refreshAll()">Обновить</button>
+  <div class="status" id="status">Только просмотр · seed и ключи не используются</div>
+</div>
+
+<script>
+const ADDRESS = "0x03c1ab4934be14ebf6125da485fe1c39a0ab8f85f0d3ca74097eae841182b9ab";
+
+// STRK native token contract on Starknet
+const STRK_CONTRACT = "0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d";
+const RPC = "https://starknet-mainnet.public.blastapi.io/rpc/v0_7";
+
+function feltAddress(a) {
+  return "0x" + BigInt(a).toString(16);
+}
+
+async function getBalance() {
+  const payload = {
+    jsonrpc:"2.0", id:1, method:"starknet_call",
+    params:[{
+      contract_address: STRK_CONTRACT,
+      entry_point_selector:"0x02e4263afad30923c89151884e5e9e7c0f37b7d16f8b8b4d94b4c2f3e4f8f2",
+      calldata:[feltAddress(ADDRESS)]
+    }, "latest"]
+  };
+  // Some public RPCs differ in version/CORS. Try known endpoints and selector fallback.
+  const endpoints = [
+    "https://starknet-mainnet.public.blastapi.io/rpc/v0_7",
+    "https://rpc.starknet.lava.build"
+  ];
+  const selectors = [
+    "0x02e4263afad30923c89151884e5e9e7c0f37b7d16f8b8b4d94b4c2f3e4f8f2",
+    "0x02e4263afad30923c89151884e5e9e7c0f37b7d16f8b8b4d94b4c2f3e4f8f2"
+  ];
+  let lastErr;
+  for (const ep of endpoints) {
+    try {
+      payload.params[0].entry_point_selector = selectors[0];
+      const r = await fetch(ep, {
+        method:"POST", headers:{"content-type":"application/json"},
+        body:JSON.stringify(payload)
+      });
+      const j = await r.json();
+      if (j.result && j.result.length) {
+        const raw = BigInt(j.result[0]);
+        return Number(raw) / 1e18;
+      }
+      lastErr = new Error(JSON.stringify(j.error || j));
+    } catch(e) { lastErr=e; }
+  }
+  throw lastErr || new Error("Balance unavailable");
+}
+
+async function getMarket() {
+  const url = "https://api.coingecko.com/api/v3/coins/starknet?localization=false&tickers=false&market_data=true&community_data=false&developer_data=false&sparkline=false";
+  const r = await fetch(url);
+  if (!r.ok) throw new Error("Price unavailable");
+  const j = await r.json();
+  return {
+    price: j.market_data.current_price.usd,
+    change: j.market_data.price_change_percentage_24h
+  };
+}
+
+async function refreshAll() {
+  const status = document.getElementById("status");
+  status.textContent = "Обновление…";
+  try {
+    const [bal, market] = await Promise.all([getBalance(), getMarket()]);
+    document.getElementById("balance").textContent =
+      bal.toLocaleString("ru-RU", {maximumFractionDigits:6});
+    document.getElementById("price").textContent =
+      "$" + market.price.toLocaleString("en-US", {maximumFractionDigits:6});
+    document.getElementById("portfolioUsd").textContent =
+      (bal * market.price).toLocaleString("en-US", {
+        style:"currency", currency:"USD", maximumFractionDigits:2
+      });
+    const c = market.change;
+    document.getElementById("change").textContent =
+      (c >= 0 ? "+" : "") + c.toFixed(2) + "%";
+    document.getElementById("updated").textContent =
+      new Date().toLocaleTimeString("ru-RU", {hour:"2-digit",minute:"2-digit"});
+    status.textContent = "Только просмотр · обновляется по сети и рыночной цене";
+  } catch(e) {
+    console.error(e);
+    status.textContent = "Не удалось получить данные. Нажмите «Обновить» позже.";
+  }
+}
+refreshAll();
+setInterval(refreshAll, 60000);
+</script>
+</body>
+</html>
