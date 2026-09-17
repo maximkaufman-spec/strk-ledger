@@ -29,12 +29,17 @@ async function getBalance() {
    if(j.balanceRaw!=null) return Number(BigInt(j.balanceRaw))/1e18;
  } catch(e) {}
  // Public RPC fallback. balanceOf selector is computed once from Starknet selector rules.
- const selector="0x02e4263afad30923c89151884e5e9e7c0f37b7d16f8b8b4d94b4c2f3e4f8f2";
+ const selector="0x2e4263afad30923c891518314c3c95dbe830a16874e8abc5777a9a20b54c76e";
  const eps=["https://rpc.starknet.lava.build","https://starknet-mainnet.public.blastapi.io/rpc/v0_8"];
  for(const ep of eps) {
   try {
    const j=await fetchJSON(ep,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({jsonrpc:"2.0",id:1,method:"starknet_call",params:[{contract_address:TOKEN,entry_point_selector:selector,calldata:[ADDRESS]},"latest"]})});
-   if(j.result?.length) return Number(BigInt(j.result[0]))/1e18;
+   if(j.result?.length) {
+     const low=BigInt(j.result[0]);
+     const high=BigInt(j.result[1] || "0x0");
+     const raw=low + (high << 128n);
+     return Number(raw)/1e18;
+   }
   } catch(e) {}
  }
  throw new Error("balance");
