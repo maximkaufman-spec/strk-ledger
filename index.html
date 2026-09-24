@@ -27,7 +27,7 @@
 <div class="market-row" data-coin="layerzero"><div class="market-symbol">ZRO</div><div class="market-price">—</div><div class="market-change">—</div></div>
 <div class="market-row" data-coin="optimism"><div class="market-symbol">OP</div><div class="market-price">—</div><div class="market-change">—</div></div>
 </div><div class="market-note">Цена USD · изменение за 24 часа</div><div class="updated-wrap">Обновлено <span class="updated">—</span></div></div></section>
-</div></div><div class="nav"><button aria-label="STRK" class="active" data-slide="0"></button><button aria-label="ARB" data-slide="1"></button><button aria-label="ZK" data-slide="2"></button><button aria-label="BTC Dominance" data-slide="3"></button><button aria-label="Market" data-slide="4"></button></div><footer><div class="address" id="address">0x03c1ab4934be14ebf6125da485fe1c39a0ab8f85f0d3ca74097eae841182b9ab</div><button aria-label="Обновить" class="refresh" id="refreshButton">↻</button></footer><div class="status" id="status">Только просмотр · автообновление каждые 4 секунды</div></div>
+</div></div><div class="nav"><button aria-label="STRK" class="active" data-slide="0"></button><button aria-label="ARB" data-slide="1"></button><button aria-label="ZK" data-slide="2"></button><button aria-label="BTC Dominance" data-slide="3"></button><button aria-label="Market" data-slide="4"></button></div><footer><div class="address" id="address">0x03c1ab4934be14ebf6125da485fe1c39a0ab8f85f0d3ca74097eae841182b9ab</div><button aria-label="Обновить" class="refresh" id="refreshButton">↻</button></footer><div class="status" id="status">Только просмотр · автообновление каждые 30 секунд</div></div>
 <script>
 const STRK_ADDRESS="0x03c1ab4934be14ebf6125da485fe1c39a0ab8f85f0d3ca74097eae841182b9ab",STRK_TOKEN="0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d",STRK_SELECTOR="0x2e4263afad30923c891518314c3c95dbe830a16874e8abc5777a9a20b54c76e";const ARB_ADDRESS="0x2F94096B7C63b5AC259e74FA142646A2c1f4E611",ARB_TOKEN="0x912CE59144191C1204E64559FE8253a0e49E6548",ARB_RPC="https://arb1.arbitrum.io/rpc";const ZK_ADDRESS="0x2F94096B7C63b5AC259e74FA142646A2c1f4E611",ZK_TOKEN="0x5A7d6b2F92C77FAD6CCaBd7EE0624E64907Eaf3E",ZK_RPC="https://mainnet.era.zksync.io";const $=id=>document.getElementById(id);let refreshing=false,queued=false,current=0,touchX=0;
 async function json(url,options={}){const r=await fetch(url,{...options,cache:"no-store"});if(!r.ok)throw Error("HTTP "+r.status);return r.json()}
@@ -61,6 +61,31 @@ function renderMarket(d){
  });
 }
 const money=n=>n.toLocaleString("en-US",{maximumFractionDigits:0}),amount=n=>n.toLocaleString("ru-RU",{maximumFractionDigits:6}),price=n=>"$"+n.toLocaleString("en-US",{minimumFractionDigits:3,maximumFractionDigits:6});function change(id,n){const e=$(id);e.textContent=(n>=0?"+":"")+n.toFixed(2)+"%";e.className="metric-value "+(n>=0?"positive":"negative")}
-async function refreshAll(source="auto"){if(refreshing){if(source==="manual")queued=true;return}refreshing=true;$("refreshButton").classList.add("is-refreshing");$("status").textContent=source==="manual"?"Обновление вручную…":"Обновление данных…";try{const[sb,sm,ab,am,zb,zm,md,dom]=await Promise.all([strkBalance(),strkMarket(),arbBalance(),arbMarket(),zkBalance(),zkMarket(),marketData(),btcDominance()]),sv=sb*sm.price,av=ab*am.price,zv=zb*zm.price;$("strkBalance").textContent=amount(sb);$("strkValue").textContent=money(sv);$("strkPrice").textContent=price(sm.price);change("strkChange",sm.change);$("arbBalance").textContent=amount(ab);$("arbValue").textContent=money(av);$("arbPrice").textContent=price(am.price);change("arbChange",am.change);$("zkBalance").textContent=amount(zb);$("zkValue").textContent=money(zv);$("zkPrice").textContent=price(zm.price);change("zkChange",zm.change);renderMarket(md);$("btcDom").textContent=dom.toFixed(2)+"%";const dc=lastDom==null?0:dom-lastDom;$("btcDomChange").textContent=(dc>=0?"+":"")+dc.toFixed(2)+" п.п.";$("btcDomChange").className="metric-value "+(dc>=0?"positive":"negative");lastDom=dom;lastDomAt=Date.now();const t=new Date().toLocaleTimeString("ru-RU",{hour:"2-digit",minute:"2-digit",second:"2-digit"});document.querySelectorAll(".updated").forEach(e=>e.textContent=t);$("status").textContent="Только просмотр · автообновление каждые 4 секунды"}catch(e){console.error(e);$("status").textContent="Не удалось обновить часть данных · повтор через 4 секунды"}finally{refreshing=false;$("refreshButton").classList.remove("is-refreshing");if(queued){queued=false;setTimeout(()=>refreshAll("manual"),0)}}}
+async function refreshAll(source="auto"){
+ if(refreshing){if(source==="manual")queued=true;return}
+ refreshing=true;$('refreshButton').classList.add('is-refreshing');$('status').textContent=source==="manual"?'Обновление вручную…':'Обновление данных…';
+ const tasks=[
+  ['strk',Promise.all([strkBalance(),strkMarket()])],
+  ['arb',Promise.all([arbBalance(),arbMarket()])],
+  ['zk',Promise.all([zkBalance(),zkMarket()])],
+  ['market',marketData()],
+  ['dom',btcDominance()]
+ ];
+ const results=await Promise.allSettled(tasks.map(x=>x[1]));
+ let ok=0;
+ results.forEach((r,i)=>{
+  const key=tasks[i][0]; if(r.status!=='fulfilled'){console.warn(key,r.reason);return} ok++;
+  try{
+   if(key==='strk'){const [b,m]=r.value;$('strkBalance').textContent=amount(b);$('strkValue').textContent=money(b*m.price);$('strkPrice').textContent=price(m.price);change('strkChange',m.change)}
+   if(key==='arb'){const [b,m]=r.value;$('arbBalance').textContent=amount(b);$('arbValue').textContent=money(b*m.price);$('arbPrice').textContent=price(m.price);change('arbChange',m.change)}
+   if(key==='zk'){const [b,m]=r.value;$('zkBalance').textContent=amount(b);$('zkValue').textContent=money(b*m.price);$('zkPrice').textContent=price(m.price);change('zkChange',m.change)}
+   if(key==='market')renderMarket(r.value);
+   if(key==='dom'){$('btcDom').textContent=Number(r.value).toFixed(2)+'%';$('btcDomChange').textContent='LIVE';$('btcDomChange').className='metric-value'}
+  }catch(e){console.warn('render '+key,e)}
+ });
+ const t=new Date().toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit',second:'2-digit'});document.querySelectorAll('.updated').forEach(e=>e.textContent=t);
+ $('status').textContent=ok===tasks.length?'Только просмотр · данные обновлены':('Обновлено '+ok+' из '+tasks.length+' источников · повтор автоматически');
+ refreshing=false;$('refreshButton').classList.remove('is-refreshing');if(queued){queued=false;setTimeout(()=>refreshAll('manual'),0)}
+}
 function show(i){current=Math.max(0,Math.min(4,i));$("slides").style.transform="translateX(-"+current*100+"%)";document.querySelectorAll(".nav button").forEach((b,n)=>b.classList.toggle("active",n===current));$("address").textContent=current===0?STRK_ADDRESS:current===1?ARB_ADDRESS:current===2?ZK_ADDRESS:current===3?"BTC Dominance":"Live Market"}document.querySelectorAll(".nav button").forEach(b=>b.addEventListener("click",()=>show(Number(b.dataset.slide))));$("refreshButton").addEventListener("click",()=>refreshAll("manual"));$("viewport").addEventListener("touchstart",e=>touchX=e.changedTouches[0].clientX,{passive:true});$("viewport").addEventListener("touchend",e=>{const d=e.changedTouches[0].clientX-touchX;if(Math.abs(d)>45)show(current+(d<0?1:-1))},{passive:true});document.addEventListener("keydown",e=>{if(e.key==="ArrowRight")show(current+1);if(e.key==="ArrowLeft")show(current-1)});refreshAll();setInterval(refreshAll,4000);
 </script></body></html>
