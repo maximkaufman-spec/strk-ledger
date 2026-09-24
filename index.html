@@ -79,30 +79,40 @@ async function strkBalance(){const body=JSON.stringify({jsonrpc:"2.0",id:1,metho
 async function strkMarket(){const d=await json("https://starknet.impulse.avnu.fi/v3/tokens/"+STRK_TOKEN),m=d.global||d.starknet||{};if(m.usd==null)throw Error("STRK price");return{price:Number(m.usd),change:Number(m.usdMarketCapChangePercentage24h??m.usdPriceChangePercentage24h??0)}}
 async function arbBalance(){const data="0x70a08231"+ARB_ADDRESS.slice(2).toLowerCase().padStart(64,"0"),body=JSON.stringify({jsonrpc:"2.0",id:1,method:"eth_call",params:[{to:ARB_TOKEN,data},"latest"]}),d=await json(ARB_RPC,{method:"POST",headers:{"Content-Type":"application/json"},body});if(!d.result)throw Error("ARB RPC");return Number(BigInt(d.result))/1e18}
 async function arbMarket(){try{const d=await json("https://api.binance.com/api/v3/ticker/24hr?symbol=ARBUSDT");return{price:Number(d.lastPrice),change:Number(d.priceChangePercent)}}catch(e){const d=await json("https://api.coingecko.com/api/v3/simple/price?ids=arbitrum&vs_currencies=usd&include_24hr_change=true"),m=d.arbitrum;if(!m?.usd)throw e;return{price:Number(m.usd),change:Number(m.usd_24h_change||0)}}}
-async function zkBalance(){
+async function zkExplorerBalance(){
   const base="https://block-explorer-api.mainnet.zksync.io/api";
   try{
-    const d=await json(base+"?module=account&action=addresstokenbalance&address="+ZK_ADDRESS+"&t="+Date.now());
+    const d=await zkJson(base+"?module=account&action=addresstokenbalance&address="+ZK_ADDRESS+"&t="+Date.now());
     const rows=Array.isArray(d?.result)?d.result:(Array.isArray(d)?d:[]);
     const hit=rows.find(x=>String(x.contractAddress||x.tokenAddress||x.address||"").toLowerCase()===ZK_TOKEN.toLowerCase() || String(x.symbol||x.tokenSymbol||"").toUpperCase()==="ZK");
     if(hit){
       const dec=Number(hit.decimals??hit.tokenDecimal??18);
       const raw=hit.balance??hit.value??hit.tokenBalance;
-      if(raw!=null)return Number(raw)/(10**dec);
+      if(raw!=null && Number.isFinite(Number(raw)) && Number(raw)>=0)return Number(raw)/(10**dec);
     }
   }catch(e){console.warn("ZK holdings API",e)}
   try{
-    const d=await json(base+"?module=account&action=tokenbalance&contractaddress="+ZK_TOKEN+"&address="+ZK_ADDRESS+"&tag=latest&t="+Date.now());
-    if(d?.result!=null && d.result!==""){
+    const d=await zkJson(base+"?module=account&action=tokenbalance&contractaddress="+ZK_TOKEN+"&address="+ZK_ADDRESS+"&tag=latest&t="+Date.now());
+    if(d?.status!=="0" && /^(0x[0-9a-f]+|[0-9]+)$/i.test(String(d?.result??""))){
       const raw=String(d.result);
       return raw.startsWith("0x")?Number(BigInt(raw))/1e18:Number(raw)/1e18;
     }
   }catch(e){console.warn("ZK tokenbalance API",e)}
-  const data="0x70a08231"+ZK_ADDRESS.slice(2).toLowerCase().padStart(64,"0");
-  const d=await json(ZK_RPC,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({jsonrpc:"2.0",id:2,method:"eth_call",params:[{to:ZK_TOKEN,data},"latest"]})});
-  if(!d.result)throw Error("ZK balance unavailable");
-  return Number(BigInt(d.result))/1e18
+  throw Error("ZK explorer unavailable");
 }
+async function zkJson(url,options={}){
+ const controller=new AbortController(), timer=setTimeout(()=>controller.abort(),6000);
+ try{return await json(url,{...options,signal:controller.signal})}finally{clearTimeout(timer)}
+}
+async function zkBalance(){
+ const data="0x70a08231"+ZK_ADDRESS.slice(2).toLowerCase().padStart(64,"0");
+ try{
+  const d=await zkJson(ZK_RPC,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({jsonrpc:"2.0",id:2,method:"eth_call",params:[{to:ZK_TOKEN,data},"latest"]})});
+  if(!/^0x[0-9a-f]+$/i.test(d.result||""))throw Error("ZK RPC");
+  return Number(BigInt(d.result))/1e18;
+ }catch(e){return zkExplorerBalance()}
+}
+
 async function zkMarket(){try{const d=await json("https://api.binance.com/api/v3/ticker/24hr?symbol=ZKUSDT");return{price:Number(d.lastPrice),change:Number(d.priceChangePercent)}}catch(e){const d=await json("https://api.coingecko.com/api/v3/simple/price?ids=zksync&vs_currencies=usd&include_24hr_change=true"),m=d.zksync;if(!m?.usd)throw e;return{price:Number(m.usd),change:Number(m.usd_24h_change||0)}}}
 
 const MARKET_IDS=["bitcoin","ethereum","starknet","arbitrum","zksync","linea","polkadot","layerzero","optimism"];
@@ -130,6 +140,7 @@ let lastDom=null,lastDomAt=0;
 function marketPrice(n){return "$"+n.toLocaleString("en-US",{minimumFractionDigits:n>=1?2:4,maximumFractionDigits:n>=1?2:6})}
 function renderMarket(d){
  document.querySelectorAll(".market-row").forEach(row=>{
+   if(row.dataset.symbol==="ZK")return;
    const m=d[row.dataset.coin], pe=row.querySelector(".market-price"), ce=row.querySelector(".market-change");
    if(!m||m.usd==null){pe.textContent="—";ce.textContent="—";ce.className="market-change";return}
    const v=Number(m.usd), ch=Number(m.usd_24h_change||0);
@@ -141,13 +152,12 @@ function renderMarket(d){
 const money=n=>n.toLocaleString("en-US",{maximumFractionDigits:0}),amount=n=>n.toLocaleString("ru-RU",{maximumFractionDigits:6}),price=n=>"$"+n.toLocaleString("en-US",{minimumFractionDigits:3,maximumFractionDigits:6});function change(id,n){const e=$(id);e.textContent=(n>=0?"+":"")+n.toFixed(2)+"%";e.className="metric-value "+(n>=0?"positive":"negative")}
 
 async function refreshAll(source="auto"){
+ if(source==="manual"){refreshZkBalance();refreshZkPrice()}
  if(refreshing){if(source==="manual")queued=true;return}
  refreshing=true;$('refreshButton').classList.add('is-refreshing');$('status').textContent=source==="manual"?'Обновление вручную…':'Обновление данных…';
  const tasks=[
   ['strk',Promise.all([strkBalance(),strkMarket()])],
   ['arb',Promise.all([arbBalance(),arbMarket()])],
-  ['zkBalanceOnly',zkBalance()],
-  ['zkMarketOnly',zkMarket()],
   ['market',marketData()],
   ['dom',btcDominance()]
  ];
@@ -158,8 +168,6 @@ async function refreshAll(source="auto"){
   try{
    if(key==='strk'){const [b,m]=r.value;$('strkBalance').textContent=amount(b);$('strkValue').textContent=money(b*m.price);$('strkPrice').textContent=price(m.price);change('strkChange',m.change)}
    if(key==='arb'){const [b,m]=r.value;$('arbBalance').textContent=amount(b);$('arbValue').textContent=money(b*m.price);$('arbPrice').textContent=price(m.price);change('arbChange',m.change)}
-   if(key==='zkBalanceOnly'){window.__zkBal=r.value;$('zkBalance').textContent=amount(r.value);if(window.__zkMarket)$('zkValue').textContent=money(r.value*window.__zkMarket.price)}
-   if(key==='zkMarketOnly'){window.__zkMarket=r.value;$('zkPrice').textContent=price(r.value.price);change('zkChange',r.value.change);if(window.__zkBal!=null)$('zkValue').textContent=money(window.__zkBal*r.value.price)}
    if(key==='market')renderMarket(r.value);
    if(key==='dom'){$('btcDom').textContent=Number(r.value).toFixed(2)+'%';$('btcDomChange').textContent='LIVE';$('btcDomChange').className='metric-value'}
   }catch(e){console.warn('render '+key,e)}
@@ -170,7 +178,7 @@ async function refreshAll(source="auto"){
 }
 function show(i){current=Math.max(0,Math.min(4,i));document.body.classList.toggle("btc-dominance-active",current===3);$("slides").style.transform="translateX(-"+current*100+"%)";document.querySelectorAll(".nav button").forEach((b,n)=>b.classList.toggle("active",n===current));$("address").textContent=current===0?STRK_ADDRESS:current===1?ARB_ADDRESS:current===2?ZK_ADDRESS:current===3?"BTC Dominance":"Live Market";const cd=document.getElementById("btcCandleCountdown");if(cd)cd.style.setProperty("display",current===3?"block":"none","important")}document.querySelectorAll(".nav button").forEach(b=>b.addEventListener("click",()=>show(Number(b.dataset.slide))));$("refreshButton").addEventListener("click",()=>refreshAll("manual"));$("viewport").addEventListener("touchstart",e=>touchX=e.changedTouches[0].clientX,{passive:true});$("viewport").addEventListener("touchend",e=>{const d=e.changedTouches[0].clientX-touchX;if(Math.abs(d)>45)show(current+(d<0?1:-1))},{passive:true});document.addEventListener("keydown",e=>{if(e.key==="ArrowRight")show(current+1);if(e.key==="ArrowLeft")show(current-1)});
 const LIVE_SYMBOLS={
- BTC:"btcusdt",ETH:"ethusdt",STRK:"strkusdt",ARB:"arbusdt",ZK:"zkusdt",
+ BTC:"btcusdt",ETH:"ethusdt",STRK:"strkusdt",ARB:"arbusdt",
  LINEA:"lineausdt",DOT:"dotusdt",ZRO:"zrousdt",OP:"opusdt"
 };
 const liveSockets={};
@@ -205,6 +213,71 @@ async function fastMarketFallback(){
   for(const [sym,pair] of Object.entries(LIVE_SYMBOLS)){const x=by[pair];if(x)applyLiveTicker(sym,{c:x.lastPrice,o:x.openPrice})}
  }catch(e){}
 }
+
+const zkLive={balance:null,price:null,open:null,revision:0,eventAt:0,lastMessage:0,balanceAt:0,balanceBusy:false,priceBusy:false,socket:null,retry:null,attempt:0};
+const zkUpdated=document.querySelectorAll(".slide")[2].querySelector(".updated");
+zkUpdated.classList.remove("updated");
+zkUpdated.id="zkUpdated";
+const zkFeed=document.createElement("div");zkFeed.id="zkFeedStatus";zkFeed.style.cssText="font-size:11px;color:#aaa7b3;margin-top:6px";
+zkUpdated.closest(".metrics").after(zkFeed);
+function renderZk(){
+ if(zkLive.balance!==null)$("zkBalance").textContent=amount(zkLive.balance);
+ if(zkLive.price===null)return;
+ $("zkPrice").textContent=price(zkLive.price);
+ if(zkLive.balance!==null)$("zkValue").textContent=money(zkLive.balance*zkLive.price);
+ const row=document.querySelector('[data-symbol="ZK"]');
+ row.querySelector('.market-price').textContent=marketPrice(zkLive.price);
+ if(zkLive.open>0){const ch=(zkLive.price/zkLive.open-1)*100;change('zkChange',ch);const el=row.querySelector('.market-change');el.textContent=(ch>=0?'+':'')+ch.toFixed(2)+'%';el.className='market-change '+(ch>=0?'positive':'negative')}
+}
+function setZkPrice(value,eventAt=0){
+ const n=Number(value);if(!Number.isFinite(n)||n<=0)return;
+ if(eventAt && eventAt<zkLive.eventAt)return;
+ if(eventAt)zkLive.eventAt=eventAt;
+ zkLive.price=n;zkLive.revision++;
+ zkUpdated.textContent=new Date().toLocaleTimeString('ru-RU',{hour12:false});renderZk();
+}
+async function refreshZkBalance(){
+ if(zkLive.balanceBusy)return;zkLive.balanceBusy=true;
+ try{const b=await zkBalance();if(!Number.isFinite(b)||b<0)throw Error('Invalid ZK balance');zkLive.balance=b;zkLive.balanceAt=Date.now();renderZk()}
+ catch(e){console.warn('ZK balance',e)}finally{zkLive.balanceBusy=false;updateZkStatus()}
+}
+async function refreshZkPrice(){
+ if(zkLive.priceBusy)return;zkLive.priceBusy=true;const revision=zkLive.revision;
+ try{const d=await zkJson('https://api.binance.com/api/v3/ticker/24hr?symbol=ZKUSDT');
+  const open=Number(d.openPrice);if(open>0)zkLive.open=open;
+  if(revision===zkLive.revision)setZkPrice(d.lastPrice,Number(d.closeTime)||0);
+  else renderZk();
+ }catch(e){console.warn('ZK price',e)}finally{zkLive.priceBusy=false;updateZkStatus()}
+}
+function updateZkStatus(){
+ const live=zkLive.socket?.readyState===1 && Date.now()-zkLive.lastMessage<10000;
+ const balance=zkLive.balance===null?' · загрузка баланса':Date.now()-zkLive.balanceAt>60000?' · баланс не обновлён':'';
+ zkFeed.textContent=(live?'Binance · LIVE':zkLive.price===null?'Подключение к Binance…':'Binance · резервное обновление')+balance;
+}
+function connectZk(){
+ clearTimeout(zkLive.retry);
+ const old=zkLive.socket;if(old){old.onclose=null;old.onmessage=null;old.onerror=null;old.close()}
+ const ws=new WebSocket('wss://stream.binance.com:443/stream?streams=zkusdt@trade/zkusdt@ticker');zkLive.socket=ws;
+ const handshake=setTimeout(()=>{if(ws.readyState===0)ws.close()},10000);
+ ws.onopen=()=>clearTimeout(handshake);
+ ws.onmessage=e=>{if(zkLive.socket!==ws)return;try{
+  const d=JSON.parse(e.data).data;zkLive.lastMessage=Date.now();zkLive.attempt=0;
+  if(d.e==='trade')setZkPrice(d.p,Number(d.T)||Number(d.E));
+  if(d.e==='24hrTicker'){const open=Number(d.o);if(open>0)zkLive.open=open;setZkPrice(d.c,Number(d.E));renderZk()}
+  updateZkStatus();
+ }catch(err){console.warn('ZK stream',err)}};
+ ws.onerror=()=>ws.close();
+ ws.onclose=()=>{clearTimeout(handshake);if(zkLive.socket!==ws)return;updateZkStatus();zkLive.retry=setTimeout(connectZk,Math.min(15000,1000*2**Math.min(zkLive.attempt++,4)))};
+}
+function resumeZk(){if(document.hidden)return;connectZk();refreshZkBalance();refreshZkPrice()}
+connectZk();refreshZkBalance();refreshZkPrice();
+setInterval(refreshZkBalance,30000);
+setInterval(()=>{updateZkStatus();if(Date.now()-zkLive.lastMessage>10000)refreshZkPrice();if(Date.now()-zkLive.lastMessage>20000 && zkLive.socket?.readyState===1)connectZk()},3000);
+setInterval(refreshZkPrice,60000);
+document.addEventListener('visibilitychange',resumeZk);
+window.addEventListener('online',resumeZk);
+window.addEventListener('pageshow',e=>{if(e.persisted)resumeZk()});
+
 startLiveMarket();
 setInterval(fastMarketFallback,5000);
 fastMarketFallback();
