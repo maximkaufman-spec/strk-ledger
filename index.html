@@ -629,6 +629,49 @@
 }
 #marketSlide .market-price{font-size:12.5px!important}
 #marketSlide .market-change{font-size:13.5px!important}
+
+/* === 2026-09-25 iPhone FINAL MARKET FIT ===
+   Keep the BTC.D countdown only on #dominanceSlide and fit all 9 market rows
+   above the shared navigation/footer without clipping. */
+#btcCandleCountdown{display:none!important}
+#dominanceSlide #btcCandleCountdown{display:block!important}
+#marketSlide #btcCandleCountdown,
+#marketSlide ~ #btcCandleCountdown{display:none!important}
+
+#marketSlide{padding-top:4px!important;padding-bottom:0!important;overflow:hidden!important}
+#marketSlide .slide-inner{
+  width:100%!important;height:100%!important;min-height:0!important;
+  display:flex!important;flex-direction:column!important;align-items:center!important;
+  justify-content:flex-start!important;overflow:hidden!important;padding:0!important;
+}
+#marketSlide .eyebrow{font-size:14px!important;line-height:1!important;letter-spacing:.21em!important;margin:0 0 4px!important}
+#marketSlide h1{font-size:39px!important;line-height:.88!important;margin:0 0 9px!important}
+#marketSlide .market-list{
+  flex:0 0 auto!important;display:flex!important;flex-direction:column!important;
+  gap:4px!important;width:min(76vw,590px)!important;margin:0 auto!important;
+}
+#marketSlide .market-row{
+  box-sizing:border-box!important;display:grid!important;
+  grid-template-columns:60px minmax(0,1fr) 80px!important;align-items:center!important;
+  gap:7px!important;width:100%!important;height:39px!important;min-height:39px!important;
+  padding:4px 12px!important;margin:0!important;border-radius:14px!important;
+}
+#marketSlide .market-symbol{font-size:18px!important;line-height:1!important}
+#marketSlide .market-price{font-size:17px!important;line-height:1!important;white-space:nowrap!important}
+#marketSlide .market-change{font-size:17px!important;line-height:1!important;white-space:nowrap!important}
+#marketSlide .market-note{display:block!important;flex:0 0 auto!important;font-size:11px!important;line-height:1.05!important;margin:7px 0 3px!important}
+#marketSlide .updated-wrap{display:block!important;flex:0 0 auto!important;font-size:15px!important;line-height:1!important;margin:0!important}
+@media (min-height:780px){
+ #marketSlide{padding-top:7px!important}
+ #marketSlide .eyebrow{font-size:15px!important}
+ #marketSlide h1{font-size:42px!important;margin-bottom:10px!important}
+ #marketSlide .market-list{gap:5px!important}
+ #marketSlide .market-row{height:42px!important;min-height:42px!important;padding:5px 13px!important}
+ #marketSlide .market-symbol{font-size:19px!important}
+ #marketSlide .market-price,#marketSlide .market-change{font-size:18px!important}
+ #marketSlide .market-note{font-size:12px!important;margin-top:8px!important}
+ #marketSlide .updated-wrap{font-size:16px!important}
+}
 </style>
 </head><body><div class="app"><div class="stars"></div><header><div class="brand"><span class="brand-main">Quanta</span><span class="brand-sub">Technology</span></div><div class="ledger"><span class="dot"></span>Ledger Nano X</div></header>
 <div class="viewport" id="viewport"><div class="slides" id="slides">
