@@ -307,4 +307,102 @@ document.addEventListener("visibilitychange",updateBtc4hCountdown);
 window.addEventListener("pageshow",updateBtc4hCountdown);
 </script>
 
+
+<!-- Coin chart modal: tap a row on the Market slide -> live Binance candlestick chart -->
+<style>
+#marketSlide .market-row{cursor:pointer;transition:transform .12s,border-color .12s}
+#marketSlide .market-row:active{transform:scale(.98);border-color:#ff970066}
+.coin-chart-modal{position:fixed;inset:0;z-index:9999;display:none;flex-direction:column;background:var(--ink);padding:max(12px,env(safe-area-inset-top)) 12px max(12px,env(safe-area-inset-bottom))}
+.coin-chart-modal.open{display:flex}
+.coin-chart-head{display:flex;align-items:center;gap:10px;margin-bottom:10px;font-variant-numeric:tabular-nums}
+.coin-chart-title{font-weight:800;font-size:20px}
+.coin-chart-pair{color:#ffffff80;font-size:12px}
+.coin-chart-price{margin-left:auto;font-size:17px;font-weight:700}
+.coin-chart-change{font-size:14px;min-width:4.5em;text-align:right}
+.coin-chart-change.positive{color:#2ecc71}.coin-chart-change.negative{color:#ff4d4f}
+.coin-chart-close{flex:none;width:36px;height:36px;border:1px solid #ffffff1a;border-radius:10px;background:var(--panel);color:#fff;font-size:20px;line-height:1;cursor:pointer}
+.coin-chart-tf{display:flex;gap:6px;margin-bottom:10px}
+.coin-chart-tf button{flex:1;height:32px;border:1px solid #ffffff1a;border-radius:9px;background:var(--panel);color:#ffffffb3;font:inherit;font-size:13px;cursor:pointer}
+.coin-chart-tf button.active{border-color:var(--orange);color:var(--orange)}
+.coin-chart-body{position:relative;flex:1;min-height:0;border:1px solid #ffffff1a;border-radius:14px;overflow:hidden;background:#050509}
+.coin-chart-msg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#ffffff80;font-size:14px;pointer-events:none;z-index:3}
+</style>
+<div class="coin-chart-modal" id="coinChartModal" role="dialog" aria-modal="true" aria-labelledby="coinChartTitle">
+  <div class="coin-chart-head">
+    <div><div class="coin-chart-title" id="coinChartTitle">—</div><div class="coin-chart-pair" id="coinChartPair">Binance</div></div>
+    <div class="coin-chart-price" id="coinChartPrice">—</div>
+    <div class="coin-chart-change" id="coinChartChange">—</div>
+    <button class="coin-chart-close" id="coinChartClose" aria-label="Закрыть">×</button>
+  </div>
+  <div class="coin-chart-tf" id="coinChartTf">
+    <button data-tf="1m">1м</button><button data-tf="15m" class="active">15м</button><button data-tf="1h">1ч</button><button data-tf="4h">4ч</button><button data-tf="1d">1Д</button>
+  </div>
+  <div class="coin-chart-body" id="coinChartBody"><div class="coin-chart-msg" id="coinChartMsg">Загрузка…</div></div>
+</div>
+<script>
+(function(){
+  const $c=id=>document.getElementById(id);
+  const modal=$c("coinChartModal"),body=$c("coinChartBody"),msg=$c("coinChartMsg");
+  const elTitle=$c("coinChartTitle"),elPair=$c("coinChartPair"),elPrice=$c("coinChartPrice"),elChange=$c("coinChartChange");
+  const LIB="https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js";
+  let libPromise=null,chart=null,series=null,ws=null,pair=null,tf="15m",session=0;
+  function loadLib(){
+    if(window.LightweightCharts)return Promise.resolve();
+    return libPromise||(libPromise=new Promise((ok,fail)=>{const s=document.createElement("script");s.src=LIB;s.onload=ok;s.onerror=()=>{libPromise=null;fail()};document.head.appendChild(s)}));
+  }
+  function fmt(p){return p>=1000?p.toLocaleString("ru-RU",{maximumFractionDigits:2}):p>=1?p.toFixed(4):p.toFixed(6)}
+  function precision(p){return p>=1000?2:p>=1?4:6}
+  function setTicker(c,o){if(!isFinite(c)||!(o>0))return;const ch=(c/o-1)*100;
+    elPrice.textContent="$"+fmt(c);elChange.textContent=(ch>=0?"+":"")+ch.toFixed(2)+"%";elChange.className="coin-chart-change "+(ch>=0?"positive":"negative")}
+  function ensureChart(){
+    if(chart)return;
+    chart=LightweightCharts.createChart(body,{autoSize:true,
+      layout:{background:{type:"solid",color:"#050509"},textColor:"rgba(255,255,255,.6)",fontSize:11},
+      grid:{vertLines:{color:"rgba(255,255,255,.05)"},horzLines:{color:"rgba(255,255,255,.07)"}},
+      rightPriceScale:{borderColor:"rgba(255,255,255,.1)"},
+      timeScale:{borderColor:"rgba(255,255,255,.1)",timeVisible:true,secondsVisible:false},
+      crosshair:{mode:0}});
+    series=chart.addCandlestickSeries({upColor:"#2ecc71",downColor:"#ff4d4f",borderVisible:false,wickUpColor:"#2ecc71",wickDownColor:"#ff4d4f"});
+  }
+  function closeWs(){if(ws){ws.onclose=null;ws.onmessage=null;try{ws.close()}catch(e){}ws=null}}
+  function connect(my){
+    closeWs();const p=pair.toLowerCase();
+    ws=new WebSocket("wss://stream.binance.com:9443/stream?streams="+p+"@kline_"+tf+"/"+p+"@ticker");
+    ws.onmessage=e=>{if(my!==session)return;try{const m=JSON.parse(e.data),d=m.data;
+      if(d.e==="kline"){const k=d.k;series.update({time:Math.floor(k.t/1000),open:+k.o,high:+k.h,low:+k.l,close:+k.c})}
+      else if(d.e==="24hrTicker"){setTicker(+d.c,+d.o)}}catch(_){}};
+    ws.onclose=()=>{if(my===session)setTimeout(()=>{if(my===session)connect(my)},1500)};
+  }
+  async function load(){
+    const my=++session;closeWs();msg.textContent="Загрузка…";msg.style.display="flex";
+    document.querySelectorAll("#coinChartTf button").forEach(b=>b.classList.toggle("active",b.dataset.tf===tf));
+    try{
+      await loadLib();if(my!==session)return;ensureChart();
+      const r=await fetch("https://api.binance.com/api/v3/klines?symbol="+pair+"&interval="+tf+"&limit=500");
+      if(!r.ok)throw new Error(r.status);
+      const rows=await r.json();if(my!==session)return;
+      const data=rows.map(k=>({time:Math.floor(k[0]/1000),open:+k[1],high:+k[2],low:+k[3],close:+k[4]}));
+      const last=data.length?data[data.length-1].close:1,pr=precision(last);
+      series.applyOptions({priceFormat:{type:"price",precision:pr,minMove:Math.pow(10,-pr)}});
+      series.setData(data);chart.timeScale().fitContent();msg.style.display="none";
+      connect(my);
+    }catch(e){if(my===session){msg.textContent="Не удалось загрузить график Binance";msg.style.display="flex"}}
+  }
+  function openChart(sym){
+    pair=sym.toUpperCase()+"USDT";
+    elTitle.textContent=sym;elPair.textContent="BINANCE · "+pair;elPrice.textContent="—";elChange.textContent="—";elChange.className="coin-chart-change";
+    const row=document.querySelector('#marketSlide .market-row[data-symbol="'+sym+'"]');
+    const rp=row&&row.querySelector(".market-price");if(rp&&rp.textContent.trim()!=="—")elPrice.textContent=rp.textContent;
+    if(series)series.setData([]);
+    modal.classList.add("open");load();
+  }
+  function closeChart(){modal.classList.remove("open");session++;closeWs();pair=null}
+  document.querySelectorAll("#marketSlide .market-row[data-symbol]").forEach(row=>row.addEventListener("click",()=>openChart(row.dataset.symbol)));
+  $c("coinChartClose").addEventListener("click",closeChart);
+  $c("coinChartTf").addEventListener("click",e=>{const b=e.target.closest("button[data-tf]");if(!b||!pair||b.dataset.tf===tf)return;tf=b.dataset.tf;if(series)series.setData([]);load()});
+  // while open: block slide arrows, Esc closes
+  window.addEventListener("keydown",e=>{if(!pair)return;e.stopImmediatePropagation();if(e.key==="Escape")closeChart()},true);
+  document.addEventListener("visibilitychange",()=>{if(!pair)return;if(document.hidden){session++;closeWs()}else load()});
+})();
+</script>
 </body></html>
