@@ -346,6 +346,20 @@ window.addEventListener("pageshow",updateBtc4hCountdown);
   const elTitle=$c("coinChartTitle"),elPair=$c("coinChartPair"),elPrice=$c("coinChartPrice"),elChange=$c("coinChartChange");
   const LIB="https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js";
   let libPromise=null,chart=null,series=null,ws=null,pair=null,tf="15m",session=0;
+  const CHART_STATE_KEY="kaufmanControl.coinChartState.v1";
+  let chartStates={};
+  try{chartStates=JSON.parse(localStorage.getItem(CHART_STATE_KEY)||"{}")||{}}catch(_){chartStates={}}
+  function stateKey(){return pair||""}
+  function getState(){return chartStates[stateKey()]||{}}
+  function saveState(patch){
+    if(!pair)return;
+    chartStates[stateKey()]=Object.assign({},getState(),patch||{});
+    try{localStorage.setItem(CHART_STATE_KEY,JSON.stringify(chartStates))}catch(_){}
+  }
+  function saveVisibleRange(){
+    if(!chart||!pair)return;
+    try{const r=chart.timeScale().getVisibleLogicalRange();if(r&&isFinite(r.from)&&isFinite(r.to))saveState({range:{from:r.from,to:r.to}})}catch(_){}
+  }
   function loadLib(){
     if(window.LightweightCharts)return Promise.resolve();
     return libPromise||(libPromise=new Promise((ok,fail)=>{const s=document.createElement("script");s.src=LIB;s.onload=ok;s.onerror=()=>{libPromise=null;fail()};document.head.appendChild(s)}));
@@ -363,6 +377,7 @@ window.addEventListener("pageshow",updateBtc4hCountdown);
       timeScale:{borderColor:"rgba(255,255,255,.1)",timeVisible:true,secondsVisible:false},
       crosshair:{mode:0}});
     series=chart.addCandlestickSeries({upColor:"#2ecc71",downColor:"#ff4d4f",borderVisible:false,wickUpColor:"#2ecc71",wickDownColor:"#ff4d4f"});
+    chart.timeScale().subscribeVisibleLogicalRangeChange(()=>saveVisibleRange());
   }
   function closeWs(){if(ws){ws.onclose=null;ws.onmessage=null;try{ws.close()}catch(e){}ws=null}}
   function connect(my){
@@ -384,22 +399,26 @@ window.addEventListener("pageshow",updateBtc4hCountdown);
       const data=rows.map(k=>({time:Math.floor(k[0]/1000),open:+k[1],high:+k[2],low:+k[3],close:+k[4]}));
       const last=data.length?data[data.length-1].close:1,pr=precision(last);
       series.applyOptions({priceFormat:{type:"price",precision:pr,minMove:Math.pow(10,-pr)}});
-      series.setData(data);chart.timeScale().fitContent();msg.style.display="none";
+      series.setData(data);
+      const saved=getState(),range=saved.range;
+      if(range&&isFinite(range.from)&&isFinite(range.to))chart.timeScale().setVisibleLogicalRange(range);else chart.timeScale().fitContent();
+      msg.style.display="none";
       connect(my);
     }catch(e){if(my===session){msg.textContent="Не удалось загрузить график Binance";msg.style.display="flex"}}
   }
   function openChart(sym){
     pair=sym.toUpperCase()+"USDT";
+    tf=getState().tf||"15m";
     elTitle.textContent=sym;elPair.textContent="BINANCE · "+pair;elPrice.textContent="—";elChange.textContent="—";elChange.className="coin-chart-change";
     const row=document.querySelector('#marketSlide .market-row[data-symbol="'+sym+'"]');
     const rp=row&&row.querySelector(".market-price");if(rp&&rp.textContent.trim()!=="—")elPrice.textContent=rp.textContent;
     if(series)series.setData([]);
     modal.classList.add("open");load();
   }
-  function closeChart(){modal.classList.remove("open");session++;closeWs();pair=null}
+  function closeChart(){saveVisibleRange();modal.classList.remove("open");session++;closeWs();pair=null}
   document.querySelectorAll("#marketSlide .market-row[data-symbol]").forEach(row=>row.addEventListener("click",()=>openChart(row.dataset.symbol)));
   $c("coinChartClose").addEventListener("click",closeChart);
-  $c("coinChartTf").addEventListener("click",e=>{const b=e.target.closest("button[data-tf]");if(!b||!pair||b.dataset.tf===tf)return;tf=b.dataset.tf;if(series)series.setData([]);load()});
+  $c("coinChartTf").addEventListener("click",e=>{const b=e.target.closest("button[data-tf]");if(!b||!pair||b.dataset.tf===tf)return;saveVisibleRange();tf=b.dataset.tf;saveState({tf:tf,range:null});if(series)series.setData([]);load()});
   // while open: block slide arrows, Esc closes
   window.addEventListener("keydown",e=>{if(!pair)return;e.stopImmediatePropagation();if(e.key==="Escape")closeChart()},true);
   document.addEventListener("visibilitychange",()=>{if(!pair)return;if(document.hidden){session++;closeWs()}else load()});
